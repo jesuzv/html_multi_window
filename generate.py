@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import html
 import requests
 import pandas as pd
 
@@ -38,53 +40,128 @@ def weekend_bounds_encoded(today: pd.Timestamp):
     s, e = day_bounds_encoded(sat), day_bounds_encoded(sun)
     return s[0], e[1]  # Sat 00:00 .. Sun 23:59
 
-def opens_js_for_route(route: str, start_date: pd.Timestamp, end_date: pd.Timestamp, today_for_weekend: pd.Timestamp):
+def open_plan_for_route(
+    route: str,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    today_for_weekend: pd.Timestamp,
+):
+    """
+    Returns a list of tuples: (url, delay_ms), preserving the exact opening order/timing.
+    """
     base_in = url_for(route, "inbound")
     base_out = url_for(route, "outbound")
 
-    lines = []
+    plan = []
+
     # 1) NOW (no dates)
-    lines.append(f"setTimeout(function(){{window.open('{base_in}');}}, 0);")
-    lines.append(f"setTimeout(function(){{window.open('{base_out}');}}, 60);")
+    plan.append((base_in, 0))
+    plan.append((base_out, 60))
 
     # 2) Date range: 2 tabs per day
     days = pd.date_range(start_date, end_date, freq="D")
     base_delay = 200
     for i, d in enumerate(days):
         s, e = day_bounds_encoded(d)
-        url_in  = f"{base_in}&dateTypeSelect=Future%20date&startDate={s}&endDate={e}"
+        url_in = f"{base_in}&dateTypeSelect=Future%20date&startDate={s}&endDate={e}"
         url_out = f"{base_out}&dateTypeSelect=Future%20date&startDate={s}&endDate={e}"
         delay = base_delay + i * 350
-        lines.append(f"setTimeout(function(){{window.open('{url_in}');}}, {delay});")
-        lines.append(f"setTimeout(function(){{window.open('{url_out}');}}, {delay+60});")
+        plan.append((url_in, delay))
+        plan.append((url_out, delay + 60))
 
     # 3) THIS WEEKEND
     wk_start, wk_end = weekend_bounds_encoded(today_for_weekend)
-    w_in  = f"{base_in}&startDate={wk_start}&endDate={wk_end}&dateTypeSelect=This%20weekend"
+    w_in = f"{base_in}&startDate={wk_start}&endDate={wk_end}&dateTypeSelect=This%20weekend"
     w_out = f"{base_out}&startDate={wk_start}&endDate={wk_end}&dateTypeSelect=This%20weekend"
     wk_delay = base_delay + len(days) * 350 + 200
-    lines.append(f"setTimeout(function(){{window.open('{w_in}');}}, {wk_delay});")
-    lines.append(f"setTimeout(function(){{window.open('{w_out}');}}, {wk_delay+60});")
+    plan.append((w_in, wk_delay))
+    plan.append((w_out, wk_delay + 60))
 
-    return "\n".join(lines)
+    return plan
 
-def html_for_route(route: str, start_date: pd.Timestamp, end_date: pd.Timestamp, today_for_weekend: pd.Timestamp) -> str:
-    opens = opens_js_for_route(route, start_date, end_date, today_for_weekend)
-    return f"""<!doctype html><html lang="en">
-<head><meta charset="utf-8"><title>Route {route}</title>
-<script>
-window.onload = function(){{
-{opens}
+def html_for_route(
+    route: str,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    today_for_weekend: pd.Timestamp,
+) -> str:
+    plan = open_plan_for_route(route, start_date, end_date, today_for_weekend)
+
+    # Safe JS literals (handles quotes, unicode, etc.)
+    urls_js = json.dumps([u for (u, _) in plan], ensure_ascii=False)
+    delays_js = json.dumps([d for (_, d) in plan])
+
+    route_esc = html.escape(route)
+
+    js = f"""
+const urls = {urls_js};
+const delays = {delays_js};
+
+function openScheduled(startIdx) {{
+  const t0 = delays[startIdx] || 0;
+  for (let i = startIdx; i < urls.length; i++) {{
+    const d = Math.max(0, delays[i] - t0);
+    setTimeout(() => window.open(urls[i], "_blank", "noopener"), d);
+  }}
+}}
+
+function showFallback() {{
+  const box = document.getElementById("blocked");
+  box.style.display = "block";
+  document.getElementById("tabCount").textContent = String(urls.length);
+  document.getElementById("openAll").onclick = () => openScheduled(0);
+}}
+
+window.onload = function() {{
+  try {{
+    // Probe: if this is blocked, show button instead of silently failing.
+    const w = window.open(urls[0], "_blank", "noopener");
+    if (!w) {{
+      showFallback();
+      return;
+    }}
+    // Already opened index 0, so replay the rest using the schedule.
+    openScheduled(1);
+  }} catch (e) {{
+    showFallback();
+  }}
 }};
+""".strip()
+
+    return f"""<!doctype html><html lang="en">
+<head><meta charset="utf-8"><title>Route {route_esc}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; line-height: 1.4; }}
+  .blocked {{
+    display:none; margin-top:16px; padding:12px 14px;
+    border:1px solid #e5e5e5; border-radius:12px; background:#fafafa;
+  }}
+  button {{
+    font-size:18px; padding:10px 14px; border-radius:12px;
+    border:1px solid #ccc; cursor:pointer;
+  }}
+</style>
+<script>
+{js}
 </script>
 </head>
 <body>
 <p>
-  Opening tabs for route {route}.<br>
+  Opening tabs for route {route_esc}.<br>
   • Now (inbound + outbound)<br>
   • Date range: {start_date:%Y-%m-%d} → {end_date:%Y-%m-%d} (inbound + outbound per day)<br>
   • This weekend (Sat 00:00 → Sun 23:59, London)
 </p>
+
+<div id="blocked" class="blocked">
+  <strong>Popups were blocked.</strong><br>
+  Intended to open <span id="tabCount">?</span> tabs.<br><br>
+  <button id="openAll">Open all tabs</button>
+  <p style="margin-top:10px; color:#555;">
+    To keep it one-click forever, allow popups for this site in your browser settings.
+  </p>
+</div>
 </body>
 </html>"""
 
@@ -93,7 +170,7 @@ def index_html_exact(routes, start_date, end_date, generated_at, range_hint):
     for r in routes:
         fname = f"{safe_name(r)}.html"
         href = f"{TARGET_DIR}/{fname}" if TARGET_DIR else fname
-        items.append(f'<li><a href="{href}" target="_blank" rel="noopener">{r}</a></li>')
+        items.append(f'<li><a href="{href}" target="_blank" rel="noopener">{html.escape(r)}</a></li>')
     items_html = "\n".join(items)
 
     return f"""<!doctype html>
@@ -165,10 +242,10 @@ def main():
     # 2) Build output files
     files_to_commit = {}
     for r in routes:
-        html = html_for_route(r, start_dt, end_dt, today_local)
+        page_html = html_for_route(r, start_dt, end_dt, today_local)
         fname = f"{safe_name(r)}.html"
         relpath = f"{TARGET_DIR}/{fname}" if TARGET_DIR else fname
-        files_to_commit[relpath] = html
+        files_to_commit[relpath] = page_html
 
     files_to_commit["index.html"] = index_html_exact(routes, start_dt, end_dt, generated_at, range_hint)
 
@@ -188,7 +265,7 @@ def main():
     out_ref = gh_req(gh, "GET", f"{API}/repos/{OWNER}/{REPO}/git/ref/heads/{OUTPUT_BRANCH}")
     out_head_sha = out_ref["object"]["sha"]
 
-    # 5) Create tree containing ONLY published site files (keeps gh-pages clean)
+    # 5) Create tree containing ONLY published site files
     tree_items = [{"path": p, "mode": "100644", "type": "blob", "content": c}
                   for p, c in files_to_commit.items()]
 
