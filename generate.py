@@ -47,7 +47,7 @@ def open_plan_for_route(
     today_for_weekend: pd.Timestamp,
 ):
     """
-    Returns a list of tuples: (url, delay_ms), preserving the exact opening order/timing.
+    Returns a list of tuples: (label, url, delay_ms), preserving the exact opening order/timing.
     """
     base_in = url_for(route, "inbound")
     base_out = url_for(route, "outbound")
@@ -55,27 +55,28 @@ def open_plan_for_route(
     plan = []
 
     # 1) NOW (no dates)
-    plan.append((base_in, 0))
-    plan.append((base_out, 60))
+    plan.append(("Now — inbound", base_in, 0))
+    plan.append(("Now — outbound", base_out, 60))
 
     # 2) Date range: 2 tabs per day
     days = pd.date_range(start_date, end_date, freq="D")
     base_delay = 200
     for i, d in enumerate(days):
         s, e = day_bounds_encoded(d)
+        day_label = d.strftime("%Y-%m-%d")
         url_in = f"{base_in}&dateTypeSelect=Future%20date&startDate={s}&endDate={e}"
         url_out = f"{base_out}&dateTypeSelect=Future%20date&startDate={s}&endDate={e}"
         delay = base_delay + i * 350
-        plan.append((url_in, delay))
-        plan.append((url_out, delay + 60))
+        plan.append((f"{day_label} — inbound", url_in, delay))
+        plan.append((f"{day_label} — outbound", url_out, delay + 60))
 
     # 3) THIS WEEKEND
     wk_start, wk_end = weekend_bounds_encoded(today_for_weekend)
     w_in = f"{base_in}&startDate={wk_start}&endDate={wk_end}&dateTypeSelect=This%20weekend"
     w_out = f"{base_out}&startDate={wk_start}&endDate={wk_end}&dateTypeSelect=This%20weekend"
     wk_delay = base_delay + len(days) * 350 + 200
-    plan.append((w_in, wk_delay))
-    plan.append((w_out, wk_delay + 60))
+    plan.append(("This weekend — inbound", w_in, wk_delay))
+    plan.append(("This weekend — outbound", w_out, wk_delay + 60))
 
     return plan
 
@@ -87,13 +88,19 @@ def html_for_route(
 ) -> str:
     plan = open_plan_for_route(route, start_date, end_date, today_for_weekend)
 
+    labels = [lbl for (lbl, _, _) in plan]
+    urls = [u for (_, u, _) in plan]
+    delays = [d for (_, _, d) in plan]
+
     # Safe JS literals (handles quotes, unicode, etc.)
-    urls_js = json.dumps([u for (u, _) in plan], ensure_ascii=False)
-    delays_js = json.dumps([d for (_, d) in plan])
+    labels_js = json.dumps(labels, ensure_ascii=False)
+    urls_js = json.dumps(urls, ensure_ascii=False)
+    delays_js = json.dumps(delays)
 
     route_esc = html.escape(route)
 
     js = f"""
+const labels = {labels_js};
 const urls = {urls_js};
 const delays = {delays_js};
 
@@ -105,16 +112,47 @@ function openScheduled(startIdx) {{
   }}
 }}
 
+function renderPlannedList() {{
+  const ol = document.getElementById("plannedList");
+  if (!ol) return;
+  ol.innerHTML = "";
+  for (let i = 0; i < labels.length; i++) {{
+    const li = document.createElement("li");
+
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = labels[i];
+
+    const link = document.createElement("a");
+    link.href = urls[i];
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "open";
+
+    li.appendChild(labelSpan);
+    li.appendChild(document.createTextNode(" "));
+    li.appendChild(link);
+    ol.appendChild(li);
+  }}
+}}
+
 function showFallback() {{
   const box = document.getElementById("blocked");
   box.style.display = "block";
   document.getElementById("tabCount").textContent = String(urls.length);
-  document.getElementById("openAll").onclick = () => openScheduled(0);
+  renderPlannedList();
+
+  // Best-possible fallback: open synchronously in the click handler.
+  // Ordering is best-effort; some browsers may still limit/reorder tabs.
+  document.getElementById("openAll").onclick = () => {{
+    for (const url of urls) {{
+      window.open(url, "_blank", "noopener");
+    }}
+  }};
 }}
 
 window.onload = function() {{
   try {{
-    // Probe: if this is blocked, show button instead of silently failing.
+    // Probe: if this is blocked, show button/list instead of silently failing.
     const w = window.open(urls[0], "_blank", "noopener");
     if (!w) {{
       showFallback();
@@ -141,6 +179,10 @@ window.onload = function() {{
     font-size:18px; padding:10px 14px; border-radius:12px;
     border:1px solid #ccc; cursor:pointer;
   }}
+  ol {{ margin-top: 12px; padding-left: 20px; }}
+  li {{ margin: 6px 0; }}
+  a {{ margin-left: 6px; }}
+  .note {{ margin-top:10px; color:#555; }}
 </style>
 <script>
 {js}
@@ -156,9 +198,14 @@ window.onload = function() {{
 
 <div id="blocked" class="blocked">
   <strong>Popups were blocked.</strong><br>
-  Intended to open <span id="tabCount">?</span> tabs.<br><br>
+  Intended to open <span id="tabCount">?</span> tabs.<br>
+  Tabs may open out of order depending on browser settings.<br><br>
+
   <button id="openAll">Open all tabs</button>
-  <p style="margin-top:10px; color:#555;">
+
+  <ol id="plannedList"></ol>
+
+  <p class="note">
     To keep it one-click forever, allow popups for this site in your browser settings.
   </p>
 </div>
