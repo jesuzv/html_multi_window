@@ -11,8 +11,13 @@
     font-size:18px; padding:10px 14px; border-radius:12px;
     border:1px solid #ccc; cursor:pointer;
   }
+  ol { margin-top: 12px; padding-left: 20px; }
+  li { margin: 6px 0; }
+  a { margin-left: 6px; }
+  .note { margin-top:10px; color:#555; }
 </style>
 <script>
+const labels = ["Now — inbound", "Now — outbound", "2026-02-01 — inbound", "2026-02-01 — outbound", "2026-02-02 — inbound", "2026-02-02 — outbound", "2026-02-03 — inbound", "2026-02-03 — outbound", "2026-02-04 — inbound", "2026-02-04 — outbound", "2026-02-05 — inbound", "2026-02-05 — outbound", "2026-02-06 — inbound", "2026-02-06 — outbound", "2026-02-07 — inbound", "2026-02-07 — outbound", "2026-02-08 — inbound", "2026-02-08 — outbound", "2026-02-09 — inbound", "2026-02-09 — outbound", "2026-02-10 — inbound", "2026-02-10 — outbound", "2026-02-11 — inbound", "2026-02-11 — outbound", "2026-02-12 — inbound", "2026-02-12 — outbound", "2026-02-13 — inbound", "2026-02-13 — outbound", "This weekend — inbound", "This weekend — outbound"];
 const urls = ["https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-01T00%3A00%3A00&endDate=2026-02-01T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-01T00%3A00%3A00&endDate=2026-02-01T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-02T00%3A00%3A00&endDate=2026-02-02T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-02T00%3A00%3A00&endDate=2026-02-02T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-03T00%3A00%3A00&endDate=2026-02-03T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-03T00%3A00%3A00&endDate=2026-02-03T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-04T00%3A00%3A00&endDate=2026-02-04T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-04T00%3A00%3A00&endDate=2026-02-04T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-05T00%3A00%3A00&endDate=2026-02-05T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-05T00%3A00%3A00&endDate=2026-02-05T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-06T00%3A00%3A00&endDate=2026-02-06T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-06T00%3A00%3A00&endDate=2026-02-06T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-07T00%3A00%3A00&endDate=2026-02-07T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-07T00%3A00%3A00&endDate=2026-02-07T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-08T00%3A00%3A00&endDate=2026-02-08T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-08T00%3A00%3A00&endDate=2026-02-08T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-09T00%3A00%3A00&endDate=2026-02-09T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-09T00%3A00%3A00&endDate=2026-02-09T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-10T00%3A00%3A00&endDate=2026-02-10T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-10T00%3A00%3A00&endDate=2026-02-10T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-11T00%3A00%3A00&endDate=2026-02-11T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-11T00%3A00%3A00&endDate=2026-02-11T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-12T00%3A00%3A00&endDate=2026-02-12T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-12T00%3A00%3A00&endDate=2026-02-12T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&dateTypeSelect=Future%20date&startDate=2026-02-13T00%3A00%3A00&endDate=2026-02-13T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&dateTypeSelect=Future%20date&startDate=2026-02-13T00%3A00%3A00&endDate=2026-02-13T23%3A59%3A59", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=inbound&startDate=2026-02-07T00%3A00%3A00&endDate=2026-02-08T23%3A59%3A59&dateTypeSelect=This%20weekend", "https://tfl.gov.uk/bus/status/?input=292&lineIds=292&direction=outbound&startDate=2026-02-07T00%3A00%3A00&endDate=2026-02-08T23%3A59%3A59&dateTypeSelect=This%20weekend"];
 const delays = [0, 60, 200, 260, 550, 610, 900, 960, 1250, 1310, 1600, 1660, 1950, 2010, 2300, 2360, 2650, 2710, 3000, 3060, 3350, 3410, 3700, 3760, 4050, 4110, 4400, 4460, 4950, 5010];
 
@@ -24,16 +29,47 @@ function openScheduled(startIdx) {
   }
 }
 
+function renderPlannedList() {
+  const ol = document.getElementById("plannedList");
+  if (!ol) return;
+  ol.innerHTML = "";
+  for (let i = 0; i < labels.length; i++) {
+    const li = document.createElement("li");
+
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = labels[i];
+
+    const link = document.createElement("a");
+    link.href = urls[i];
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "open";
+
+    li.appendChild(labelSpan);
+    li.appendChild(document.createTextNode(" "));
+    li.appendChild(link);
+    ol.appendChild(li);
+  }
+}
+
 function showFallback() {
   const box = document.getElementById("blocked");
   box.style.display = "block";
   document.getElementById("tabCount").textContent = String(urls.length);
-  document.getElementById("openAll").onclick = () => openScheduled(0);
+  renderPlannedList();
+
+  // Best-possible fallback: open synchronously in the click handler.
+  // Ordering is best-effort; some browsers may still limit/reorder tabs.
+  document.getElementById("openAll").onclick = () => {
+    for (const url of urls) {
+      window.open(url, "_blank", "noopener");
+    }
+  };
 }
 
 window.onload = function() {
   try {
-    // Probe: if this is blocked, show button instead of silently failing.
+    // Probe: if this is blocked, show button/list instead of silently failing.
     const w = window.open(urls[0], "_blank", "noopener");
     if (!w) {
       showFallback();
@@ -57,9 +93,14 @@ window.onload = function() {
 
 <div id="blocked" class="blocked">
   <strong>Popups were blocked.</strong><br>
-  Intended to open <span id="tabCount">?</span> tabs.<br><br>
+  Intended to open <span id="tabCount">?</span> tabs.<br>
+  Tabs may open out of order depending on browser settings.<br><br>
+
   <button id="openAll">Open all tabs</button>
-  <p style="margin-top:10px; color:#555;">
+
+  <ol id="plannedList"></ol>
+
+  <p class="note">
     To keep it one-click forever, allow popups for this site in your browser settings.
   </p>
 </div>
