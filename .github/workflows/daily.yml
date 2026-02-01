@@ -1,0 +1,26 @@
+name: Daily HTML generation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 1 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas requests
+
+      - name: Run generator and publish to gh-pages
+        env:
+          PAGES_PAT: ${{ secrets.PAGES_PAT }}
+        run: python generate.py
