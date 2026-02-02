@@ -92,7 +92,6 @@ def html_for_route(
     urls = [u for (_, u, _) in plan]
     delays = [d for (_, _, d) in plan]
 
-    # Safe JS literals (handles quotes, unicode, etc.)
     labels_js = json.dumps(labels, ensure_ascii=False)
     urls_js = json.dumps(urls, ensure_ascii=False)
     delays_js = json.dumps(delays)
@@ -135,24 +134,47 @@ function renderPlannedList() {{
   }}
 }}
 
+function setStatus(msg) {{
+  const el = document.getElementById("status");
+  if (el) el.textContent = msg;
+}}
+
+// Returns true if browser allows popups right now (for this click gesture).
+function popupsAllowedNow() {{
+  try {{
+    const p = window.open("about:blank", "_blank", "noopener,width=1,height=1,left=-10000,top=-10000");
+    if (!p) return false;
+    // Close immediately; this is just a permission probe.
+    try {{ p.close(); }} catch (e) {{}}
+    return true;
+  }} catch (e) {{
+    return false;
+  }}
+}}
+
 function showFallback() {{
   const box = document.getElementById("blocked");
   box.style.display = "block";
   document.getElementById("tabCount").textContent = String(urls.length);
   renderPlannedList();
 
-  // Best-possible fallback: open synchronously in the click handler.
-  // Ordering is best-effort; some browsers may still limit/reorder tabs.
+  // IMPORTANT:
+  // - If popups are not allowed, scheduled opens WILL be blocked (timers lose the user gesture).
+  // - Therefore: only run the schedule when we detect popups are allowed.
   document.getElementById("openAll").onclick = () => {{
-    for (const url of urls) {{
-      window.open(url, "_blank", "noopener");
+    if (!popupsAllowedNow()) {{
+      setStatus("Popups are blocked. Allow popups for this site first, otherwise the browser will likely only open 1 tab.");
+      return;
     }}
+    setStatus("Popups allowed — opening tabs in order…");
+    // Start schedule from 0 (your intended timings).
+    openScheduled(0);
   }};
 }}
 
 window.onload = function() {{
   try {{
-    // Probe: if this is blocked, show button/list instead of silently failing.
+    // Probe on load: if blocked, show fallback UI instead of silently failing.
     const w = window.open(urls[0], "_blank", "noopener");
     if (!w) {{
       showFallback();
@@ -183,6 +205,7 @@ window.onload = function() {{
   li {{ margin: 6px 0; }}
   a {{ margin-left: 6px; }}
   .note {{ margin-top:10px; color:#555; }}
+  #status {{ margin-top:10px; color:#333; }}
 </style>
 <script>
 {js}
@@ -197,16 +220,21 @@ window.onload = function() {{
 </p>
 
 <div id="blocked" class="blocked">
-  <strong>Popups were blocked.</strong><br>
-  Intended to open <span id="tabCount">?</span> tabs.<br>
-  Tabs may open out of order depending on browser settings.<br><br>
+  <strong>Popups are blocked for this site.</strong><br>
+  Planned tabs: <span id="tabCount">?</span>.<br>
+  To open everything automatically (in order), allow popups for this site <em>first</em>.<br>
+  Otherwise the browser may open only 1 tab.<br><br>
 
   <button id="openAll">Open all tabs</button>
+  <div id="status"></div>
 
+  <p class="note">
+    Manual option: open any tab from the planned list below (this is the intended order):
+  </p>
   <ol id="plannedList"></ol>
 
   <p class="note">
-    To keep it one-click forever, allow popups for this site in your browser settings.
+    Best experience: allow popups for this site to enable the one-click opener.
   </p>
 </div>
 </body>
