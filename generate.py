@@ -140,17 +140,26 @@ function setStatus(msg) {{
 }}
 
 // Returns true if browser allows popups right now (for this click gesture).
-function popupsAllowedNow() {{
-  try {{
-    const p = window.open("about:blank", "_blank", "noopener,width=1,height=1,left=-10000,top=-10000");
+function popupsAllowedNow() {
+  try {
+    // url, windowName, features
+    const p = window.open(
+      "data:text/html,<title></title>",
+      "popup_probe",
+      "popup=1,width=1,height=1,left=-10000,top=-10000"
+    );
     if (!p) return false;
-    // Close immediately; this is just a permission probe.
-    try {{ p.close(); }} catch (e) {{}}
+
+    // Close after creation (more reliable than immediate close).
+    setTimeout(() => {
+      try { p.close(); } catch (e) {}
+    }, 0);
+
     return true;
-  }} catch (e) {{
+  } catch (e) {
     return false;
-  }}
-}}
+  }
+}
 
 function showFallback() {{
   const box = document.getElementById("blocked");
