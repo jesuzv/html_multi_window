@@ -3,7 +3,7 @@ name: Daily HTML generation
 on:
   workflow_dispatch:
   schedule:
-    - cron: "30 1 * * *"
+    - cron: "36 2 * * *"
 
 jobs:
   build:
