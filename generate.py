@@ -98,17 +98,25 @@ def html_for_route(
 
     route_esc = html.escape(route)
 
+    # Notes:
+    # - Auto-open uses window.open(url)
+    # - If anything is blocked, stop and show fallback.
+    # - Fallback "Open all tabs" uses the same schedule, but ONLY after verifying popups are allowed.
     js = f"""
 const labels = {labels_js};
 const urls = {urls_js};
 const delays = {delays_js};
 
-function openScheduled(startIdx) {{
-  const t0 = delays[startIdx] || 0;
-  for (let i = startIdx; i < urls.length; i++) {{
-    const d = Math.max(0, delays[i] - t0);
-    setTimeout(() => window.open(urls[i], "_blank", "noopener"), d);
-  }}
+let timeouts = [];
+
+function clearSchedule() {{
+  for (const id of timeouts) clearTimeout(id);
+  timeouts = [];
+}}
+
+function setStatus(msg) {{
+  const el = document.getElementById("status");
+  if (el) el.textContent = msg;
 }}
 
 function renderPlannedList() {{
@@ -134,76 +142,52 @@ function renderPlannedList() {{
   }}
 }}
 
-function setStatus(msg) {{
-  const el = document.getElementById("status");
-  if (el) el.textContent = msg;
-}}
-
-// Returns true if browser allows popups right now (for this click gesture).
-function popupsAllowedNow() {{
-  try {{
-    // Test whether the browser will allow MORE than one popup for this click.
-    // If only 1 is allowed, scheduled/timed opens will effectively fail.
-    const p1 = window.open(
-      "data:text/html,<title></title>",
-      "popup_probe_1",
-      "popup=1,width=1,height=1,left=-10000,top=-10000"
-    );
-    const ok1 = !!p1;
-
-    const p2 = window.open(
-      "data:text/html,<title></title>",
-      "popup_probe_2",
-      "popup=1,width=1,height=1,left=-10000,top=-10000"
-    );
-    const ok2 = !!p2;
-
-    // Close them (async close tends to be more reliable)
-    setTimeout(() => {{
-      try {{ if (p1) p1.close(); }} catch (e) {{}}
-      try {{ if (p2) p2.close(); }} catch (e) {{}}
-    }}, 0);
-
-    // Only return true if BOTH opened.
-    return ok1 && ok2;
-  }} catch (e) {{
-    return false;
-  }}
-}}
-
 function showFallback() {{
+  clearSchedule();
   const box = document.getElementById("blocked");
   box.style.display = "block";
   document.getElementById("tabCount").textContent = String(urls.length);
   renderPlannedList();
+  setStatus("Popups are blocked. Allow popups for this site, then click “Open all tabs” to open everything in order.");
 
-  // IMPORTANT:
-  // - If popups are not allowed, scheduled opens WILL be blocked (timers lose the user gesture).
-  // - Therefore: only run the schedule when we detect popups are allowed.
   document.getElementById("openAll").onclick = () => {{
-    if (!popupsAllowedNow()) {{
-      setStatus("Popups aren't allowed (browser only permits 1). Allow popups for this site, then click again to open everything in order.");
+    setStatus("Checking popup permission…");
+    // Must succeed on *this click* (user gesture). If blocked here, schedule will also fail.
+    const test = window.open(urls[0]);
+    if (!test) {{
+      setStatus("Still blocked. Allow popups for this site first — otherwise the browser will open 0–1 tab.");
       return;
     }}
+
     setStatus("Popups allowed — opening tabs in order…");
-    // Start schedule from 0 (your intended timings).
-    openScheduled(0);
+    // We already opened index 0 in the permission test, so schedule the rest preserving spacing.
+    scheduleFrom(1, delays[1] || 0);
   }};
 }}
 
-window.onload = function() {{
-  try {{
-    // Probe on load: if blocked, show fallback UI instead of silently failing.
-    const w = window.open(urls[0], "_blank", "noopener");
-    if (!w) {{
-      showFallback();
-      return;
-    }}
-    // Already opened index 0, so replay the rest using the schedule.
-    openScheduled(1);
-  }} catch (e) {{
-    showFallback();
+function scheduleFrom(startIdx, t0Delay) {{
+  for (let i = startIdx; i < urls.length; i++) {{
+    const d = Math.max(0, (delays[i] || 0) - t0Delay);
+    const id = setTimeout(() => {{
+      const w = window.open(urls[i]);
+      if (!w) {{
+        // If the browser starts blocking mid-stream, fall back immediately.
+        showFallback();
+      }}
+    }}, d);
+    timeouts.push(id);
   }}
+}}
+
+window.onload = function() {{
+  // Auto-open path (works when the site is allowed, like your original code).
+  const w0 = window.open(urls[0]);
+  if (!w0) {{
+    showFallback();
+    return;
+  }}
+  // Keep your intended timing for the rest.
+  scheduleFrom(1, delays[1] || 0);
 }};
 """.strip()
 
@@ -241,14 +225,14 @@ window.onload = function() {{
 <div id="blocked" class="blocked">
   <strong>Popups are blocked for this site.</strong><br>
   Planned tabs: <span id="tabCount">?</span>.<br>
-  To open everything automatically (in order), allow popups for this site <em>first</em>.<br>
-  Otherwise the browser may open only 1 tab.<br><br>
+  Allow popups for this site <em>first</em>, then click “Open all tabs” to open everything in order.<br>
+  Otherwise the browser may open only 0–1 tab.<br><br>
 
   <button id="openAll">Open all tabs</button>
   <div id="status"></div>
 
   <p class="note">
-    Manual option: open any tab from the planned list below (this is the intended order):
+    Manual option (intended order):
   </p>
   <ol id="plannedList"></ol>
 
