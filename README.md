@@ -17,6 +17,10 @@ The generator runs on a schedule and republishes the site daily.
 Route pages are named **exactly** like the route in `routes.txt`.  
 The target URLs opened by each route page are defined in `generate.py`.
 
+## Third-party links
+
+This project generates HTML that may open external websites. Any content accessed via those links is owned by its respective owners and is not covered by this repository’s license.
+
 ## How to use
 
 1. Open the index page.
