@@ -142,18 +142,30 @@ function setStatus(msg) {{
 // Returns true if browser allows popups right now (for this click gesture).
 function popupsAllowedNow() {{
   try {{
-    const p = window.open(
+    // Test whether the browser will allow MORE than one popup for this click.
+    // If only 1 is allowed, scheduled/timed opens will effectively fail.
+    const p1 = window.open(
       "data:text/html,<title></title>",
-      "popup_probe",
+      "popup_probe_1",
       "popup=1,width=1,height=1,left=-10000,top=-10000"
     );
-    if (!p) return false;
+    const ok1 = !!p1;
 
+    const p2 = window.open(
+      "data:text/html,<title></title>",
+      "popup_probe_2",
+      "popup=1,width=1,height=1,left=-10000,top=-10000"
+    );
+    const ok2 = !!p2;
+
+    // Close them (async close tends to be more reliable)
     setTimeout(() => {{
-      try {{ p.close(); }} catch (e) {{}}
+      try {{ if (p1) p1.close(); }} catch (e) {{}}
+      try {{ if (p2) p2.close(); }} catch (e) {{}}
     }}, 0);
 
-    return true;
+    // Only return true if BOTH opened.
+    return ok1 && ok2;
   }} catch (e) {{
     return false;
   }}
@@ -170,7 +182,7 @@ function showFallback() {{
   // - Therefore: only run the schedule when we detect popups are allowed.
   document.getElementById("openAll").onclick = () => {{
     if (!popupsAllowedNow()) {{
-      setStatus("Popups are blocked. Allow popups for this site first, otherwise the browser will likely only open 1 tab.");
+      setStatus("Popups aren't allowed (browser only permits 1). Allow popups for this site, then click again to open everything in order.");
       return;
     }}
     setStatus("Popups allowed — opening tabs in order…");
