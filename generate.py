@@ -17,6 +17,9 @@ OUTPUT_BRANCH = "gh-pages" # generated HTML goes here (GitHub Pages publishes th
 ROUTE_FILE_PATH = "routes.txt"
 TARGET_DIR = ""            # keep "" to preserve URLs like /1.html, /SL10.html
 
+# Durable “already succeeded today?” marker stored on gh-pages
+STATE_PATH = ".run-state/last_success.json"
+
 # London local dynamic date range: today → today+12 (inclusive)
 TZ = ZoneInfo("Europe/London")
 today_local: date = datetime.now(TZ).date()
@@ -43,6 +46,39 @@ def weekend_bounds_encoded(today: date):
     s0, _ = day_bounds_encoded(sat)
     _, e1 = day_bounds_encoded(sun)
     return s0, e1  # Sat 00:00 .. Sun 23:59
+
+def london_today_iso() -> str:
+    return datetime.now(TZ).date().isoformat()
+
+def already_succeeded_today(owner: str, repo: str, branch: str) -> bool:
+    """
+    Checks a committed marker file on the output branch to see if we already
+    successfully published for today's London date.
+
+    If the check fails (network, parse error), we DO NOT skip (safer to run again).
+    """
+    url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{STATE_PATH}"
+    try:
+        r = requests.get(url, timeout=15)
+        if r.status_code == 404:
+            return False
+        r.raise_for_status()
+        data = r.json()
+        return data.get("date") == london_today_iso() and data.get("status") == "success"
+    except Exception:
+        return False
+
+def success_state_payload(range_hint: str) -> str:
+    return json.dumps(
+        {
+            "date": london_today_iso(),
+            "status": "success",
+            "range": range_hint,
+            "updated_at": datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S %Z"),
+        },
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
 
 def open_plan_for_route(
     route: str,
@@ -308,6 +344,11 @@ def gh_req(session: requests.Session, method: str, url: str, **kwargs):
     return r.json()
 
 def main():
+    # 0) Skip if one of the earlier crons already succeeded today (London date)
+    if already_succeeded_today(OWNER, REPO, OUTPUT_BRANCH):
+        print("Skip: already succeeded today (per gh-pages state file).")
+        return
+
     # 1) Load routes.txt from main (exact order)
     raw_url = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{SOURCE_BRANCH}/{ROUTE_FILE_PATH}"
     resp = requests.get(raw_url, timeout=30)
@@ -334,10 +375,13 @@ def main():
 
     files_to_commit["index.html"] = index_html_exact(routes, start_dt, end_dt, generated_at, range_hint)
 
-    # 3) Auth (use PAT from Actions secret)
-    token = os.environ.get("PAGES_PAT")
+    # 2b) Update success marker (committed to gh-pages; used for skip logic)
+    files_to_commit[STATE_PATH] = success_state_payload(range_hint)
+
+    # 3) Auth (use GitHub Actions token)
+    token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        raise RuntimeError("Missing PAGES_PAT env var (set it as a repo secret and pass via workflow).")
+        raise RuntimeError("Missing GITHUB_TOKEN env var (provided by GitHub Actions).")
 
     gh = requests.Session()
     gh.headers.update({
