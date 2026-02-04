@@ -3,7 +3,7 @@
 A tiny generator that publishes a GitHub Pages site containing  
 **one HTML page per route**.
 
-Each route page opens multiple inbound/outbound **TfL Bus Status** tabs for:
+Each route page opens multiple inbound/outbound **Bus Status** tabs for:
 
 - **Now**
 - A **future date range** (one inbound + one outbound per day)
