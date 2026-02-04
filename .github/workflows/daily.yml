@@ -9,6 +9,14 @@ on:
     - cron: "51 4 * * *"
     - cron: "17 5 * * *"
     - cron: "23 6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-html-generation
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -22,9 +30,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install pandas requests
+        run: pip install requests
 
-      - name: Run generator and publish to gh-pages
+      - name: Run generator and publish to gh-pages (skips if already succeeded today)
         env:
-          PAGES_PAT: ${{ secrets.PAGES_PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python generate.py
