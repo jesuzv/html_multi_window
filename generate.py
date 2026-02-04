@@ -2,8 +2,10 @@ import os
 import re
 import json
 import html
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
+
 import requests
-import pandas as pd
 
 # ---------- Config ----------
 OWNER = "jesuzv"
@@ -16,10 +18,10 @@ ROUTE_FILE_PATH = "routes.txt"
 TARGET_DIR = ""            # keep "" to preserve URLs like /1.html, /SL10.html
 
 # London local dynamic date range: today → today+12 (inclusive)
-tz = "Europe/London"
-today_local = pd.Timestamp.now(tz=tz).normalize()
-start_dt = today_local.tz_localize(None)
-end_dt = (today_local + pd.Timedelta(days=12)).tz_localize(None)
+TZ = ZoneInfo("Europe/London")
+today_local: date = datetime.now(TZ).date()
+start_dt: date = today_local
+end_dt: date = today_local + timedelta(days=12)
 
 # ---------- Helpers ----------
 def safe_name(s: str) -> str:
@@ -29,22 +31,24 @@ def url_for(route: str, direction: str) -> str:
     r = route.strip()
     return f"https://tfl.gov.uk/bus/status/?input={r}&lineIds={r}&direction={direction}"
 
-def day_bounds_encoded(day: pd.Timestamp):
-    return f"{day:%Y-%m-%d}T00%3A00%3A00", f"{day:%Y-%m-%d}T23%3A59%3A59"
+def day_bounds_encoded(day: date):
+    d = day.strftime("%Y-%m-%d")
+    return f"{d}T00%3A00%3A00", f"{d}T23%3A59%3A59"
 
-def weekend_bounds_encoded(today: pd.Timestamp):
+def weekend_bounds_encoded(today: date):
     wd = today.weekday()  # Mon=0..Sun=6
     offset_to_sat = (5 - wd) % 7
-    sat = (today + pd.Timedelta(days=offset_to_sat)).tz_localize(None)
-    sun = sat + pd.Timedelta(days=1)
-    s, e = day_bounds_encoded(sat), day_bounds_encoded(sun)
-    return s[0], e[1]  # Sat 00:00 .. Sun 23:59
+    sat = today + timedelta(days=offset_to_sat)
+    sun = sat + timedelta(days=1)
+    s0, _ = day_bounds_encoded(sat)
+    _, e1 = day_bounds_encoded(sun)
+    return s0, e1  # Sat 00:00 .. Sun 23:59
 
 def open_plan_for_route(
     route: str,
-    start_date: pd.Timestamp,
-    end_date: pd.Timestamp,
-    today_for_weekend: pd.Timestamp,
+    start_date: date,
+    end_date: date,
+    today_for_weekend: date,
 ):
     """
     Returns a list of tuples: (label, url, delay_ms), preserving the exact opening order/timing.
@@ -58,8 +62,10 @@ def open_plan_for_route(
     plan.append(("Now — inbound", base_in, 0))
     plan.append(("Now — outbound", base_out, 60))
 
-    # 2) Date range: 2 tabs per day
-    days = pd.date_range(start_date, end_date, freq="D")
+    # 2) Date range: 2 tabs per day (inclusive)
+    day_count = (end_date - start_date).days
+    days = [start_date + timedelta(days=i) for i in range(day_count + 1)]
+
     base_delay = 200
     for i, d in enumerate(days):
         s, e = day_bounds_encoded(d)
@@ -82,9 +88,9 @@ def open_plan_for_route(
 
 def html_for_route(
     route: str,
-    start_date: pd.Timestamp,
-    end_date: pd.Timestamp,
-    today_for_weekend: pd.Timestamp,
+    start_date: date,
+    end_date: date,
+    today_for_weekend: date,
 ) -> str:
     plan = open_plan_for_route(route, start_date, end_date, today_for_weekend)
 
@@ -313,8 +319,9 @@ def main():
     if len(routes) != len(set(routes)):
         raise RuntimeError("Duplicate routes found in routes.txt.")
 
-    dates_list = [d.strftime("%Y-%m-%d") for d in pd.date_range(start_dt, end_dt, freq="D")]
-    generated_at = pd.Timestamp.now(tz=tz).strftime("%Y-%m-%d %H:%M %Z")
+    dates_list = [(start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+                  for i in range((end_dt - start_dt).days + 1)]
+    generated_at = datetime.now(TZ).strftime("%Y-%m-%d %H:%M %Z")
     range_hint = f"{dates_list[0]} → {dates_list[-1]}"
 
     # 2) Build output files
