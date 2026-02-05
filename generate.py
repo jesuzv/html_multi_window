@@ -2,15 +2,14 @@ import os
 import re
 import json
 import html
+import subprocess
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
 
 # ---------- Config ----------
-OWNER = "jesuzv"
-REPO = "html_multi_window"
-
+# OWNER/REPO are auto-detected (Actions, env override, or local git remote)
 SOURCE_BRANCH = "main"     # routes.txt lives here
 OUTPUT_BRANCH = "gh-pages" # generated HTML goes here (GitHub Pages publishes this)
 
@@ -25,6 +24,46 @@ TZ = ZoneInfo("Europe/London")
 today_local: date = datetime.now(TZ).date()
 start_dt: date = today_local
 end_dt: date = today_local + timedelta(days=12)
+
+# ---------- Repo detection ----------
+def detect_owner_repo() -> tuple[str, str]:
+    """
+    Priority:
+      1) Explicit override: GITHUB_OWNER + GITHUB_REPO
+      2) GitHub Actions: GITHUB_REPOSITORY = "owner/repo"
+      3) Local git: parse `git remote get-url origin`
+    """
+    owner = os.environ.get("GITHUB_OWNER")
+    repo = os.environ.get("GITHUB_REPO")
+    if owner and repo:
+        return owner, repo
+
+    gh_repo = os.environ.get("GITHUB_REPOSITORY")
+    if gh_repo and "/" in gh_repo:
+        o, r = gh_repo.split("/", 1)
+        return o, r
+
+    # Local fallback: try git remote
+    try:
+        url = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+
+        # Handles:
+        #   https://github.com/owner/repo.git
+        #   git@github.com:owner/repo.git
+        m = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)", url)
+        if m:
+            return m.group("owner"), m.group("repo")
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "Could not detect owner/repo. Set env vars GITHUB_OWNER and GITHUB_REPO, "
+        "or run inside a git repo with an 'origin' remote, or on GitHub Actions."
+    )
 
 # ---------- Helpers ----------
 def safe_name(s: str) -> str:
@@ -343,14 +382,44 @@ def gh_req(session: requests.Session, method: str, url: str, **kwargs):
         raise RuntimeError(f"{method} {url} -> {r.status_code}\n{r.text}")
     return r.json()
 
+def _get_ref_or_none(gh: requests.Session, url: str):
+    r = gh.get(url)
+    if r.status_code == 404:
+        return None
+    if not r.ok:
+        raise RuntimeError(f"GET {url} -> {r.status_code}\n{r.text}")
+    return r.json()
+
+def ensure_output_branch_exists(gh: requests.Session, owner: str, repo: str, branch: str) -> str:
+    """
+    Ensures OUTPUT_BRANCH exists. If missing, creates it pointing at SOURCE_BRANCH HEAD.
+    Returns the branch HEAD commit SHA.
+    """
+    ref_url = f"{API}/repos/{owner}/{repo}/git/ref/heads/{branch}"
+    ref = _get_ref_or_none(gh, ref_url)
+    if ref is not None:
+        return ref["object"]["sha"]
+
+    # Create OUTPUT_BRANCH from SOURCE_BRANCH head
+    src_ref = gh_req(gh, "GET", f"{API}/repos/{owner}/{repo}/git/ref/heads/{SOURCE_BRANCH}")
+    src_sha = src_ref["object"]["sha"]
+
+    gh_req(gh, "POST", f"{API}/repos/{owner}/{repo}/git/refs", json={
+        "ref": f"refs/heads/{branch}",
+        "sha": src_sha,
+    })
+    return src_sha
+
 def main():
+    owner, repo = detect_owner_repo()
+
     # 0) Skip if one of the earlier crons already succeeded today (London date)
-    if already_succeeded_today(OWNER, REPO, OUTPUT_BRANCH):
+    if already_succeeded_today(owner, repo, OUTPUT_BRANCH):
         print("Skip: already succeeded today (per gh-pages state file).")
         return
 
     # 1) Load routes.txt from main (exact order)
-    raw_url = f"https://raw.githubusercontent.com/{OWNER}/{REPO}/{SOURCE_BRANCH}/{ROUTE_FILE_PATH}"
+    raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{SOURCE_BRANCH}/{ROUTE_FILE_PATH}"
     resp = requests.get(raw_url, timeout=30)
     resp.raise_for_status()
 
@@ -378,10 +447,13 @@ def main():
     # 2b) Update success marker (committed to gh-pages; used for skip logic)
     files_to_commit[STATE_PATH] = success_state_payload(range_hint)
 
-    # 3) Auth (use GitHub Actions token)
-    token = os.environ.get("GITHUB_TOKEN")
+    # 3) Auth (use GitHub Actions token or local PAT)
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if not token:
-        raise RuntimeError("Missing GITHUB_TOKEN env var (provided by GitHub Actions).")
+        raise RuntimeError(
+            "Missing token. On GitHub Actions this is GITHUB_TOKEN. "
+            "Locally, set GH_TOKEN to a PAT with repo permissions."
+        )
 
     gh = requests.Session()
     gh.headers.update({
@@ -390,9 +462,8 @@ def main():
         "X-GitHub-Api-Version": "2022-11-28",
     })
 
-    # 4) Get gh-pages HEAD
-    out_ref = gh_req(gh, "GET", f"{API}/repos/{OWNER}/{REPO}/git/ref/heads/{OUTPUT_BRANCH}")
-    out_head_sha = out_ref["object"]["sha"]
+    # 4) Ensure gh-pages exists; get its HEAD commit SHA
+    out_head_sha = ensure_output_branch_exists(gh, owner, repo, OUTPUT_BRANCH)
 
     # 5) Create tree containing ONLY published site files
     tree_items = [{"path": p, "mode": "100644", "type": "blob", "content": c}
@@ -402,13 +473,13 @@ def main():
         f"Daily HTML update: {range_hint} (+now,+weekend; {len(routes)} routes + index)"
     )
 
-    new_tree = gh_req(gh, "POST", f"{API}/repos/{OWNER}/{REPO}/git/trees", json={
+    new_tree = gh_req(gh, "POST", f"{API}/repos/{owner}/{repo}/git/trees", json={
         "tree": tree_items
     })
     new_tree_sha = new_tree["sha"]
 
     # 6) Create commit
-    new_commit = gh_req(gh, "POST", f"{API}/repos/{OWNER}/{REPO}/git/commits", json={
+    new_commit = gh_req(gh, "POST", f"{API}/repos/{owner}/{repo}/git/commits", json={
         "message": commit_message,
         "tree": new_tree_sha,
         "parents": [out_head_sha],
@@ -416,7 +487,7 @@ def main():
     new_commit_sha = new_commit["sha"]
 
     # 7) Update gh-pages ref
-    gh_req(gh, "PATCH", f"{API}/repos/{OWNER}/{REPO}/git/refs/heads/{OUTPUT_BRANCH}", json={
+    gh_req(gh, "PATCH", f"{API}/repos/{owner}/{repo}/git/refs/heads/{OUTPUT_BRANCH}", json={
         "sha": new_commit_sha,
         "force": False
     })
