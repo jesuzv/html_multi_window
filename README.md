@@ -1,117 +1,31 @@
 # html_multi_window
 
-A tiny generator that publishes a GitHub Pages site containing  
-**one HTML page per route**.
+Generates a GitHub Pages site with **one HTML page per bus route** from `routes.txt`.
 
-Each route page opens multiple inbound/outbound **Bus Status** tabs for:
-
-- **Now**
-- A **future date range** (one inbound + one outbound per day)
-- **This weekend**
-
-The generator runs automatically and republishes the site daily.
-
----
+Each route page opens **Bus Status** tabs for:
+- **Now** (inbound + outbound)
+- A **future date range** (inbound + outbound per day)
+- **This weekend** (Sat–Sun, London time)
 
 ## Live site
-
 - Index: https://jesuzv.github.io/html_multi_window/
-- Example route page: https://jesuzv.github.io/html_multi_window/1.html
+- Example: https://jesuzv.github.io/html_multi_window/1.html
 
-Route pages are named **exactly** like the route in `routes.txt`.
-
----
-
-## How it works (high level)
-
-- `routes.txt` defines which routes exist and their order
+## Source of truth
+- `routes.txt` controls which pages exist and their order.
 - `generate.py` builds:
-  - one HTML page per route
-  - an index page linking to them
-- GitHub Actions runs the generator and commits output to `gh-pages`
-- GitHub Pages serves the site from `gh-pages`
+  - `index.html`
+  - `<route>.html` per route (sanitized filename)
+  - `.run-state/last_success.json` (run-once-per-day marker)
 
-The generated HTML is an **artifact**; the generator is the product.
+## Branches
+- `main`: generator + config (`generate.py`, `routes.txt`, workflows)
+- `gh-pages`: generated output only (what GitHub Pages serves)
 
----
-
-## routes.txt is the source of truth
-
-The file `routes.txt` (on the `main` branch) defines:
-
-- which route pages exist
-- the **exact order** they appear in the index
-
-Edit `routes.txt` to add, remove, or reorder routes.
-
-The next successful workflow run will publish the updated site.
-
----
-
-## Repo layout
-
-This repository is intentionally split:
-
-- **`main`** — source of truth
-  - `generate.py`
-  - `routes.txt`
-  - `.github/workflows/`
-- **`gh-pages`** — generated output only
-  - published HTML
-  - no hand-edited files
-
-This keeps generated noise out of the source branch.
-
----
+Do not hand-edit `gh-pages`; change `routes.txt` and let the workflow publish.
 
 ## Automation
+GitHub Actions runs on multiple daily schedules for reliability, but publishes **at most once per London calendar day** using the marker file on `gh-pages`.
 
-The site is regenerated using **GitHub Actions**:
-
-- triggered by multiple daily schedules (for reliability)
-- can also be run manually via `workflow_dispatch`
-
-### Run-once-per-day logic
-
-Although several cron schedules exist, the generator:
-
-- publishes **at most once per London calendar day**
-- stores a success marker on `gh-pages`
-- later runs automatically skip if a successful run already happened
-
-This prevents unnecessary duplicate commits.
-
----
-
-## Authentication
-
-The workflow uses GitHub’s built-in automation token:
-
-- **`GITHUB_TOKEN`**
-- scoped to **contents: write**
-
-No Personal Access Token is required.
-
----
-
-## Usage notes
-
-1. Open the index page
-2. Click a route
-3. Your browser will likely block pop-ups the first time  
-   → allow pop-ups for `jesuzv.github.io`
-
-⚠️ Each route page intentionally opens many tabs.
-
----
-
-## Development notes
-
-- Time calculations are done in **Europe/London**
-- Date ranges automatically adjust for DST
-- If you see stale content, it’s usually browser/CDN caching  
-  → try a private window
-
----
-
-Start at the index page and click a route.
+## Notes
+Browsers often block popups on first use — allow popups for `*.github.io`.
