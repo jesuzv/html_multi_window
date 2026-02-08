@@ -1,0 +1,38 @@
+name: Daily HTML generation
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "13 1 * * *"
+    - cron: "21 2 * * *"
+    - cron: "42 3 * * *"
+    - cron: "51 4 * * *"
+    - cron: "17 5 * * *"
+    - cron: "23 6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-html-generation
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run generator and publish to gh-pages (skips if already succeeded today)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python generate.py
